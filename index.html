@@ -603,6 +603,8 @@
             overflow-y: auto;
             font-size: var(--reader-font-size);
             line-height: 1.75;
+            overflow-wrap: break-word;
+            word-break: break-word;
             transition: background-color 0.25s, color 0.25s;
         }
 
@@ -727,7 +729,7 @@
             margin-bottom: 14px;
         }
 
-        /* ─── NEW: PAPER SIZE & EXPORT SETUP MODAL ─── */
+        /* ─── STEP-2 PAPER SIZE & EXPORT SETUP MODAL ─── */
         .modal-backdrop {
             position: fixed;
             inset: 0;
@@ -866,7 +868,7 @@
             border-top: 1px solid var(--border);
         }
 
-        /* Hidden Mounted Offscreen Stage for Reliable html2canvas PDF Rendering */
+        /* Hidden Mounted Offscreen Stage for 1:1 Un-Squished html2canvas PDF Rendering */
         #pdfRenderStage {
             position: fixed;
             left: -10000px;
@@ -874,13 +876,28 @@
             background: #FFFFFF;
             color: #111827;
             font-family: 'DM Sans', sans-serif;
-            line-height: 1.7;
+            font-size: 14.5px;
+            line-height: 1.68;
             z-index: -1;
             overflow: hidden;
+            overflow-wrap: break-word;
+            word-break: break-word;
+        }
+
+        #pdfRenderStage h1, #pdfRenderStage h2, #pdfRenderStage h3 {
+            color: #0F172A;
+            margin: 0.5em 0 0.4em;
+            line-height: 1.3;
+        }
+
+        #pdfRenderStage p, #pdfRenderStage li {
+            margin-bottom: 0.75em;
+            text-align: justify;
         }
 
         #pdfRenderStage img {
             max-width: 100%;
+            max-height: 520px;
             height: auto;
             display: block;
             margin: 12px auto;
@@ -981,7 +998,7 @@
     <input type="file" id="epubFileInput" multiple accept=".epub,application/epub+zip" style="display:none">
     <input type="file" id="epubFolderInput" webkitdirectory directory multiple style="display:none">
 
-    <!-- Mounted Offscreen Render Container (Fixes html2canvas blank page bug) -->
+    <!-- Mounted Offscreen Render Container (Fixes html2canvas blank page & aspect ratio bugs) -->
     <div id="pdfRenderStage"></div>
 
     <!-- Drag & Drop Overlay -->
@@ -998,7 +1015,7 @@
         <div style="font-size: 0.85rem; color: var(--text-muted);" id="loadingSub">Extracting covers & chapters...</div>
     </div>
 
-    <!-- NEW: Step-2 Paper Size Selection Modal -->
+    <!-- Step-2 Paper Size Selection Modal -->
     <div class="modal-backdrop" id="paperSizeModal">
         <div class="paper-modal" onclick="event.stopPropagation()">
             <div class="paper-modal-header">
@@ -1391,7 +1408,7 @@
         });
 
         /* ═══════════════════════════════════════════════════════════════════
-           CORE EPUB PARSER, COVER EXTRACTOR & VIRTUAL PAGINATOR
+           CORE EPUB PARSER, DEEP LEAF-BLOCK UNWRAPPER & 300+ PAGE PAGINATOR
         ═══════════════════════════════════════════════════════════════════ */
         async function processEpubFiles(fileList) {
             const epubFiles = fileList.filter(f => f && /\.epub$/i.test(f.name));
@@ -1438,6 +1455,96 @@
                 else stack.push(part);
             }
             return stack.join('/');
+        }
+
+        function escapeHtmlText(str) {
+            return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        // NEW FIX: Recursively unwraps wrapper <div>, <section>, <article>, <ul>, <ol> containers
+        // so that individual paragraphs (<p>, <li>, <h1>-<h6>, <img>) are extracted for true 300+ page pagination.
+        function extractLeafBlocks(rootNode) {
+            const leaves = [];
+            const UNWRAP_CONTAINERS = new Set([
+                'BODY', 'DIV', 'SECTION', 'ARTICLE', 'MAIN', 'ASIDE', 'HEADER', 'FOOTER', 'NAV', 'BLOCKQUOTE', 'UL', 'OL', 'DL', 'FIGURE'
+            ]);
+
+            function walk(node) {
+                if (node.nodeType === Node.TEXT_NODE) {
+                    const txt = node.textContent.trim();
+                    if (txt.length > 0) {
+                        leaves.push({
+                            html: `<p>${escapeHtmlText(txt)}</p>`,
+                            text: txt,
+                            hasImage: false
+                        });
+                    }
+                    return;
+                }
+
+                if (node.nodeType !== Node.ELEMENT_NODE) return;
+                const tag = node.tagName.toUpperCase();
+                if (['SCRIPT', 'STYLE', 'LINK', 'META', 'NOSCRIPT'].includes(tag)) return;
+
+                const hasDirectImg = tag === 'IMG' || tag === 'SVG' || tag === 'IMAGE';
+                if (hasDirectImg) {
+                    leaves.push({
+                        html: node.outerHTML,
+                        text: '',
+                        hasImage: true
+                    });
+                    return;
+                }
+
+                // If this is a wrapper container that holds child element nodes, unwrap its children recursively
+                if (UNWRAP_CONTAINERS.has(tag) && node.children.length > 0) {
+                    for (const child of node.childNodes) {
+                        walk(child);
+                    }
+                    return;
+                }
+
+                const text = (node.textContent || '').trim();
+                const hasNestedImg = Boolean(node.querySelector && node.querySelector('img, svg, image'));
+
+                if (!text && !hasNestedImg) return;
+
+                // If a single leaf block (e.g. a giant <p> or endnote block with <br> tags) exceeds 1,400 chars,
+                // split it cleanly by sentences so no single page can ever overflow or squish.
+                if (!hasNestedImg && text.length > 1400) {
+                    const sentences = text.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g) || [text];
+                    let chunk = '';
+                    for (const s of sentences) {
+                        if ((chunk + s).length > 1100 && chunk.trim().length > 0) {
+                            leaves.push({
+                                html: `<p>${escapeHtmlText(chunk.trim())}</p>`,
+                                text: chunk.trim(),
+                                hasImage: false
+                            });
+                            chunk = s;
+                        } else {
+                            chunk += s;
+                        }
+                    }
+                    if (chunk.trim().length > 0) {
+                        leaves.push({
+                            html: `<p>${escapeHtmlText(chunk.trim())}</p>`,
+                            text: chunk.trim(),
+                            hasImage: false
+                        });
+                    }
+                } else {
+                    const outHtml = tag === 'LI' ? `<p style="margin-left:14px;">• ${node.innerHTML}</p>` : node.outerHTML;
+                    leaves.push({
+                        html: outHtml,
+                        text: text,
+                        hasImage: hasNestedImg
+                    });
+                }
+            }
+
+            walk(rootNode);
+            return leaves;
         }
 
         function generateProceduralCover(title, author) {
@@ -1564,6 +1671,7 @@
             const pages = [];
             const chapters = [];
 
+            // Page 1: Cover Page
             pages.push({
                 chapterTitle: 'Cover & Title',
                 html: `
@@ -1576,6 +1684,10 @@
                 text: `${title}\nBy ${author}\n`
             });
             chapters.push({ title: '1. Cover Page', pageIndex: 0 });
+
+            // Standard eBook synthetic page budget (~1,200 chars or ~8 paragraphs per page, matching Readest / Adobe Digital Editions)
+            const CHARS_PER_SYNTHETIC_PAGE = 1200;
+            const MAX_BLOCKS_PER_PAGE = 9;
 
             let chapterCounter = 1;
             for (const ref of spineNodes) {
@@ -1610,52 +1722,51 @@
 
                 const headingEl = chapterDoc.querySelector('h1, h2, h3, title');
                 const chapterTitle = (headingEl && headingEl.textContent.trim())
-                    ? headingEl.textContent.trim().slice(0, 45)
+                    ? headingEl.textContent.trim().slice(0, 48)
                     : `Section ${chapterCounter}`;
 
                 const bodyEl = chapterDoc.body;
-                if (!bodyEl || (!bodyEl.textContent.trim() && !bodyEl.querySelector('img'))) continue;
+                if (!bodyEl) continue;
+
+                // Extract leaf paragraphs/blocks even if wrapped inside deep <div class="chapter"> tags
+                const leafBlocks = extractLeafBlocks(bodyEl);
+                if (leafBlocks.length === 0) continue;
 
                 chapterCounter++;
                 chapters.push({ title: `${chapterCounter}. ${chapterTitle}`, pageIndex: pages.length });
 
-                const blocks = Array.from(bodyEl.children);
-                if (blocks.length === 0) {
-                    pages.push({
-                        chapterTitle,
-                        html: bodyEl.innerHTML,
-                        text: bodyEl.textContent.trim()
-                    });
-                } else {
-                    let currentChunkHtml = '';
-                    let currentChunkText = '';
+                let currentChunkHtml = '';
+                let currentChunkText = '';
+                let currentBlockCount = 0;
 
-                    for (const block of blocks) {
-                        const blockHtml = block.outerHTML;
-                        const blockText = block.textContent || '';
-                        const hasImage = block.tagName === 'IMG' || block.querySelector('img');
+                for (const leaf of leafBlocks) {
+                    const nextCharLen = currentChunkText.length + leaf.text.length;
+                    const shouldBreakForText = nextCharLen > CHARS_PER_SYNTHETIC_PAGE && currentChunkHtml !== '';
+                    const shouldBreakForCount = currentBlockCount >= MAX_BLOCKS_PER_PAGE && currentChunkHtml !== '';
+                    const shouldBreakForImg = leaf.hasImage && currentChunkText.length > 350;
 
-                        if ((currentChunkText.length + blockText.length > 1350 && currentChunkHtml !== '') || (hasImage && currentChunkText.length > 600)) {
-                            pages.push({
-                                chapterTitle,
-                                html: currentChunkHtml,
-                                text: currentChunkText.trim()
-                            });
-                            currentChunkHtml = blockHtml;
-                            currentChunkText = blockText + '\n\n';
-                        } else {
-                            currentChunkHtml += blockHtml;
-                            currentChunkText += blockText + '\n\n';
-                        }
-                    }
-
-                    if (currentChunkHtml.trim() !== '') {
+                    if (shouldBreakForText || shouldBreakForCount || shouldBreakForImg) {
                         pages.push({
                             chapterTitle,
                             html: currentChunkHtml,
                             text: currentChunkText.trim()
                         });
+                        currentChunkHtml = leaf.html;
+                        currentChunkText = leaf.text ? (leaf.text + '\n\n') : '';
+                        currentBlockCount = 1;
+                    } else {
+                        currentChunkHtml += leaf.html;
+                        if (leaf.text) currentChunkText += leaf.text + '\n\n';
+                        currentBlockCount++;
                     }
+                }
+
+                if (currentChunkHtml.trim() !== '') {
+                    pages.push({
+                        chapterTitle,
+                        html: currentChunkHtml,
+                        text: currentChunkText.trim()
+                    });
                 }
             }
 
@@ -1835,7 +1946,6 @@
             document.getElementById('exportMenu').classList.remove('open');
         });
 
-        // Formats that support Paper Size selection open the Step-2 Modal first
         function initiateExportFlow(format) {
             document.getElementById('exportMenu').classList.remove('open');
             const paperSupportedFormats = ['pdf-direct', 'pdf-fast', 'pdf-vector', 'html'];
@@ -1894,14 +2004,61 @@
             await executeExport(format, pageSetup);
         }
 
+        // Helper: Adds a rendered <canvas> to jsPDF at true 1:1 aspect ratio, slicing across pages if needed so it NEVER squishes
+        function appendCanvasAtTrueScale(pdf, canvas, setup, isFirstPdfPage) {
+            const usableWidthMm = setup.widthMm - setup.marginMm * 2;
+            const usableHeightMm = setup.heightMm - setup.marginMm * 2;
+            const maxSlicePx = Math.floor((usableHeightMm / usableWidthMm) * canvas.width);
+
+            let offsetY = 0;
+            let firstChunk = isFirstPdfPage;
+
+            while (offsetY < canvas.height) {
+                if (!firstChunk) {
+                    pdf.addPage([setup.widthMm, setup.heightMm], setup.orientation);
+                }
+                firstChunk = false;
+
+                const sliceHeightPx = Math.min(maxSlicePx, canvas.height - offsetY);
+                const sliceCanvas = document.createElement('canvas');
+                sliceCanvas.width = canvas.width;
+                sliceCanvas.height = sliceHeightPx;
+
+                const ctx = sliceCanvas.getContext('2d');
+                ctx.fillStyle = '#FFFFFF';
+                ctx.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
+                ctx.drawImage(
+                    canvas,
+                    0, offsetY, canvas.width, sliceHeightPx,
+                    0, 0, canvas.width, sliceHeightPx
+                );
+
+                // True 1:1 proportional height in millimeters (never compressed)
+                const sliceHeightMm = (sliceHeightPx * usableWidthMm) / canvas.width;
+                const imgData = sliceCanvas.toDataURL('image/jpeg', 0.90);
+
+                pdf.addImage(
+                    imgData,
+                    'JPEG',
+                    setup.marginMm,
+                    setup.marginMm,
+                    usableWidthMm,
+                    sliceHeightMm,
+                    undefined,
+                    'FAST'
+                );
+
+                offsetY += sliceHeightPx;
+            }
+        }
+
         async function executeExport(format, setup) {
             const book = books.find(b => b.id === activeBookId);
             if (!book) return;
 
             const safeName = book.title.replace(/[<>:"/\\|?*]/g, '_').trim() || 'Book';
 
-            // 1. FIXED DIRECT VISUAL PDF DOWNLOAD (Mounted Page-by-Page html2canvas + jsPDF Loop)
-            // Completely bypasses Chromium's 32,767px canvas limit & detached DOM bug
+            // 1. DIRECT VISUAL PDF DOWNLOAD (True 1:1 Scale + Multi-Page Overflow Slicer)
             if (format === 'pdf-direct') {
                 const { jsPDF } = window.jspdf;
                 const pdf = new jsPDF({
@@ -1912,11 +2069,13 @@
                 });
 
                 const stage = document.getElementById('pdfRenderStage');
-                // Map millimeter width to crisp CSS pixel width (approx 3.78 px per mm)
-                const pxWidth = Math.round(setup.widthMm * 3.78);
-                const pxMargin = Math.round(setup.marginMm * 3.78);
+                const usableWidthMm = setup.widthMm - setup.marginMm * 2;
+                const usableHeightMm = setup.heightMm - setup.marginMm * 2;
+                const pxWidth = Math.round(usableWidthMm * 3.78);
+                const pxMinHeight = Math.round(usableHeightMm * 3.78);
+
                 stage.style.width = `${pxWidth}px`;
-                stage.style.padding = `${pxMargin}px`;
+                stage.style.padding = '4px 8px';
 
                 showLoading(
                     `Building ${setup.name} (${setup.orientation}) PDF...`,
@@ -1929,43 +2088,26 @@
                             `Rendering Page ${i + 1} of ${book.pages.length} (${Math.round(((i + 1) / book.pages.length) * 100)}%)...`;
 
                         stage.innerHTML = `
-                            <div style="min-height:${Math.round((setup.heightMm - setup.marginMm * 2) * 3.78)}px; display:flex; flex-direction:column; justify-content:space-between;">
+                            <div style="min-height:${pxMinHeight}px; display:flex; flex-direction:column; justify-content:space-between;">
                                 <div>${book.pages[i].html}</div>
-                                <div style="margin-top:18px; padding-top:8px; border-top:1px solid #E2E8F0; font-size:11px; color:#64748B; display:flex; justify-content:space-between;">
-                                    <span>${book.title}</span>
+                                <div style="margin-top:16px; padding-top:8px; border-top:1px solid #E2E8F0; font-size:11px; color:#64748B; display:flex; justify-content:space-between;">
+                                    <span>${escapeHtmlText(book.title.slice(0, 55))}</span>
                                     <span>Page ${i + 1} / ${book.pages.length}</span>
                                 </div>
                             </div>
                         `;
 
-                        // Yield briefly so DOM & images paint and progress UI updates smoothly
-                        await new Promise(r => setTimeout(r, 20));
+                        await new Promise(r => setTimeout(r, 12));
 
                         const canvas = await html2canvas(stage, {
-                            scale: 1.6,
+                            scale: 1.5,
                             useCORS: true,
                             allowTaint: true,
                             backgroundColor: '#FFFFFF',
                             logging: false
                         });
 
-                        const imgData = canvas.toDataURL('image/jpeg', 0.88);
-                        const renderedHeightMm = (canvas.height * setup.widthMm) / canvas.width;
-
-                        if (i > 0) {
-                            pdf.addPage([setup.widthMm, setup.heightMm], setup.orientation);
-                        }
-
-                        pdf.addImage(
-                            imgData,
-                            'JPEG',
-                            0,
-                            0,
-                            setup.widthMm,
-                            Math.min(renderedHeightMm, setup.heightMm),
-                            undefined,
-                            'FAST'
-                        );
+                        appendCanvasAtTrueScale(pdf, canvas, setup, i === 0);
                     }
 
                     stage.innerHTML = '';
@@ -1996,7 +2138,6 @@
                     const usableWidth = setup.widthMm - setup.marginMm * 2;
                     const maxY = setup.heightMm - setup.marginMm - 10;
 
-                    // Page 1: Cover Image + Title
                     try {
                         const imgW = Math.min(usableWidth * 0.6, 100);
                         const imgH = imgW * 1.4;
@@ -2020,40 +2161,43 @@
                         pdfPageCount++;
                         let cursorY = setup.marginMm;
 
-                        // Chapter Header
                         pdf.setFont('helvetica', 'bold');
                         pdf.setFontSize(10);
                         pdf.setTextColor(120, 120, 120);
                         pdf.text(book.pages[i].chapterTitle || book.title, setup.marginMm, cursorY);
                         cursorY += 8;
 
-                        // Body Text
                         pdf.setFont('helvetica', 'normal');
                         pdf.setFontSize(11);
                         pdf.setTextColor(20, 20, 20);
 
-                        const cleanText = (book.pages[i].text || '').replace(/\s+/g, ' ').trim();
-                        const lines = pdf.splitTextToSize(cleanText, usableWidth);
+                        const paragraphs = (book.pages[i].text || '').split(/\n\s*\n/);
+                        for (const para of paragraphs) {
+                            const cleanPara = para.replace(/\s+/g, ' ').trim();
+                            if (!cleanPara) continue;
+                            const lines = pdf.splitTextToSize(cleanPara, usableWidth);
 
-                        for (const line of lines) {
-                            if (cursorY > maxY) {
-                                pdf.setFontSize(9);
-                                pdf.setTextColor(140, 140, 140);
-                                pdf.text(`${ pdfPageCount }`, setup.widthMm / 2, setup.heightMm - 6, { align: 'center' });
+                            for (const line of lines) {
+                                if (cursorY > maxY) {
+                                    pdf.setFontSize(9);
+                                    pdf.setTextColor(140, 140, 140);
+                                    pdf.text(`${pdfPageCount}`, setup.widthMm / 2, setup.heightMm - 6, { align: 'center' });
 
-                                pdf.addPage([setup.widthMm, setup.heightMm], setup.orientation);
-                                pdfPageCount++;
-                                cursorY = setup.marginMm;
-                                pdf.setFontSize(11);
-                                pdf.setTextColor(20, 20, 20);
+                                    pdf.addPage([setup.widthMm, setup.heightMm], setup.orientation);
+                                    pdfPageCount++;
+                                    cursorY = setup.marginMm;
+                                    pdf.setFontSize(11);
+                                    pdf.setTextColor(20, 20, 20);
+                                }
+                                pdf.text(line, setup.marginMm, cursorY);
+                                cursorY += 5.8;
                             }
-                            pdf.text(line, setup.marginMm, cursorY);
-                            cursorY += 6;
+                            cursorY += 3;
                         }
 
                         pdf.setFontSize(9);
                         pdf.setTextColor(140, 140, 140);
-                        pdf.text(`${ pdfPageCount }`, setup.widthMm / 2, setup.heightMm - 6, { align: 'center' });
+                        pdf.text(`${pdfPageCount}`, setup.widthMm / 2, setup.heightMm - 6, { align: 'center' });
                     }
 
                     pdf.save(`${safeName}_${setup.name}_Fast.pdf`);
@@ -2079,7 +2223,7 @@
                     const allPagesHtml = book.pages.map((p, idx) => `
                         <div class="print-page">
                             ${p.html}
-                            <div class="print-footer">${book.title} — Page ${idx + 1} of ${book.pages.length}</div>
+                            <div class="print-footer">${escapeHtmlText(book.title)} — Page ${idx + 1} of ${book.pages.length}</div>
                         </div>
                     `).join('');
 
@@ -2089,11 +2233,11 @@
                         <!DOCTYPE html>
                         <html>
                         <head>
-                            <title>${book.title}</title>
+                            <title>${escapeHtmlText(book.title)}</title>
                             <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&display=swap" rel="stylesheet">
                             <style>
                                 @page { size: ${setup.cssSize} ${setup.orientation}; margin: ${setup.marginMm}mm; }
-                                body { font-family: 'DM Sans', sans-serif; color: #111; line-height: 1.7; margin: 0; padding: 0; }
+                                body { font-family: 'DM Sans', sans-serif; color: #111; line-height: 1.7; margin: 0; padding: 0; overflow-wrap: break-word; }
                                 .print-page { page-break-after: always; position: relative; }
                                 img { max-width: 100%; max-height: ${setup.heightMm - setup.marginMm * 2 - 30}mm; display: block; margin: 12px auto; }
                                 .print-footer { margin-top: 20px; padding-top: 8px; border-top: 1px solid #ddd; font-size: 9pt; color: #666; text-align: center; }
@@ -2116,13 +2260,13 @@
             // 4. STANDALONE HTML EBOOK (Sized to Chosen Paper Dimensions)
             else if (format === 'html') {
                 const bodyHtml = book.pages.map((p, i) => `
-                    <section style="width:${setup.widthMm}mm;min-height:${setup.heightMm}mm;margin:24px auto;padding:${setup.marginMm}mm;background:#fff;border-radius:8px;box-shadow:0 4px 18px rgba(0,0,0,0.08);box-sizing:border-box;">
+                    <section style="width:${setup.widthMm}mm;min-height:${setup.heightMm}mm;margin:24px auto;padding:${setup.marginMm}mm;background:#fff;border-radius:8px;box-shadow:0 4px 18px rgba(0,0,0,0.08);box-sizing:border-box;overflow-wrap:break-word;">
                         ${p.html}
                         <div style="text-align:right;font-size:12px;color:#888;margin-top:16px;">Page ${i + 1} / ${book.pages.length} (${setup.name})</div>
                     </section>
                 `).join('');
 
-                const fullHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${book.title}</title><style>body{font-family:system-ui,sans-serif;background:#e2e8f0;color:#1e293b;line-height:1.7;margin:0;padding:20px;}img{max-width:100%;height:auto;display:block;margin:12px auto;}</style></head><body>${bodyHtml}</body></html>`;
+                const fullHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${escapeHtmlText(book.title)}</title><style>body{font-family:system-ui,sans-serif;background:#e2e8f0;color:#1e293b;line-height:1.7;margin:0;padding:20px;}img{max-width:100%;height:auto;display:block;margin:12px auto;}</style></head><body>${bodyHtml}</body></html>`;
                 const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
                 saveAs(blob, `${safeName}_${setup.name}.html`);
                 showToast(`Exported "${safeName}_${setup.name}.html"!`);
