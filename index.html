@@ -1,0 +1,1744 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EpubStudio — Local EPUB Reader & PDF Converter</title>
+
+    <!-- Google Fonts: DM Sans -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet">
+
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+
+    <!-- Open-Source Client-Side Engines: JSZip, FileSaver, html2pdf.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+    <style>
+        :root {
+            --bg-main: #0B0F19;
+            --bg-panel: #111827;
+            --bg-card: #1E293B;
+            --bg-card-hover: #283548;
+            --bg-stage: #070A10;
+            --primary: #F59E0B;
+            --primary-dim: rgba(245, 158, 11, 0.15);
+            --primary-glow: rgba(245, 158, 11, 0.35);
+            --secondary: #10B981;
+            --text-main: #F8FAFC;
+            --text-muted: #94A3B8;
+            --border: rgba(255, 255, 255, 0.09);
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 16px;
+
+            /* Reader Paper Theme Variables (Default: Warm Ivory) */
+            --page-bg: #FCFBF7;
+            --page-text: #1E293B;
+            --page-muted: #64748B;
+            --page-border: #E2E8F0;
+            --reader-font-size: 16px;
+        }
+
+        [data-reader-theme="sepia"] {
+            --page-bg: #F4ECD8;
+            --page-text: #3B2F2F;
+            --page-muted: #7A6352;
+            --page-border: #DEC9A8;
+        }
+
+        [data-reader-theme="dark"] {
+            --page-bg: #131B2E;
+            --page-text: #E2E8F0;
+            --page-muted: #94A3B8;
+            --page-border: #26334D;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--bg-main);
+            color: var(--text-main);
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* ─── TOP APP BAR ─── */
+        .app-topbar {
+            height: 58px;
+            background-color: var(--bg-panel);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            flex-shrink: 0;
+            z-index: 30;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 700;
+            font-size: 1.15rem;
+            letter-spacing: -0.02em;
+        }
+
+        .brand i {
+            color: var(--primary);
+            font-size: 1.35rem;
+        }
+
+        .top-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .btn {
+            font-family: 'DM Sans', sans-serif;
+            font-size: 0.85rem;
+            font-weight: 600;
+            padding: 8px 14px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+            background-color: var(--bg-card);
+            color: var(--text-main);
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+
+        .btn:hover:not(:disabled) {
+            background-color: var(--bg-card-hover);
+            border-color: rgba(255, 255, 255, 0.25);
+            transform: translateY(-1px);
+        }
+
+        .btn:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+
+        .btn-gold {
+            background-color: var(--primary);
+            color: #0B0F19;
+            border-color: var(--primary);
+            font-weight: 700;
+        }
+
+        .btn-gold:hover:not(:disabled) {
+            background-color: #fbbf24;
+            border-color: #fbbf24;
+        }
+
+        /* Mobile Switcher Tabs (Visible only on small screens) */
+        .mobile-view-tabs {
+            display: none;
+            background: var(--bg-panel);
+            border-bottom: 1px solid var(--border);
+            padding: 8px 16px;
+            gap: 8px;
+        }
+
+        .mobile-tab-btn {
+            flex: 1;
+            padding: 8px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+            background: var(--bg-main);
+            color: var(--text-muted);
+            font-family: 'DM Sans', sans-serif;
+            font-weight: 600;
+            font-size: 0.85rem;
+            cursor: pointer;
+        }
+
+        .mobile-tab-btn.active {
+            background: var(--primary-dim);
+            color: var(--primary);
+            border-color: var(--primary);
+        }
+
+        /* ─── MAIN SPLIT LAYOUT (PROTOTYPE STRUCTURE) ─── */
+        .workspace {
+            display: flex;
+            flex: 1;
+            height: calc(100vh - 58px);
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* ─── LEFT SIDEBAR: 2-COLUMN BOOK GRID + ADD BUTTON ─── */
+        .library-sidebar {
+            width: 340px;
+            min-width: 290px;
+            max-width: 380px;
+            background-color: var(--bg-panel);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+
+        .library-header {
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .library-title-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .library-title {
+            font-size: 0.9rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+        }
+
+        .book-count-pill {
+            background: var(--primary-dim);
+            color: var(--primary);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            font-size: 0.78rem;
+            font-weight: 700;
+            padding: 2px 10px;
+            border-radius: 999px;
+        }
+
+        .search-wrap {
+            position: relative;
+        }
+
+        .search-wrap i {
+            position: absolute;
+            left: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-muted);
+            font-size: 0.82rem;
+        }
+
+        .search-input {
+            width: 100%;
+            background: var(--bg-main);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 7px 10px 7px 30px;
+            color: var(--text-main);
+            font-family: 'DM Sans', sans-serif;
+            font-size: 0.82rem;
+            outline: none;
+        }
+
+        .search-input:focus {
+            border-color: var(--primary);
+        }
+
+        /* Prototype 2-Column Book Grid (B1, B2, B3, +) */
+        .book-grid {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 14px;
+            align-content: start;
+        }
+
+        .book-grid::-webkit-scrollbar {
+            width: 6px;
+        }
+        .book-grid::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 3px;
+        }
+
+        .book-card {
+            display: flex;
+            flex-direction: column;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1.5px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            position: relative;
+        }
+
+        .book-card:hover {
+            background: var(--bg-card);
+            border-color: rgba(255, 255, 255, 0.25);
+            transform: translateY(-3px);
+        }
+
+        .book-card.active {
+            background: var(--primary-dim);
+            border-color: var(--primary);
+            box-shadow: 0 0 18px rgba(245, 158, 11, 0.18);
+        }
+
+        .book-cover-box {
+            width: 100%;
+            aspect-ratio: 2 / 2.8;
+            border-radius: 6px;
+            overflow: hidden;
+            background: var(--bg-main);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 8px;
+            position: relative;
+        }
+
+        .book-cover-box img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .book-card-title {
+            font-size: 0.82rem;
+            font-weight: 700;
+            color: var(--text-main);
+            line-height: 1.3;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            text-align: center;
+            min-height: 2.1em;
+        }
+
+        .book-card-pages {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            text-align: center;
+            margin-top: 3px;
+        }
+
+        /* Prototype (+) Add More Card inside Grid */
+        .add-book-card {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 210px;
+            border: 2px dashed rgba(245, 158, 11, 0.4);
+            border-radius: var(--radius-md);
+            background: rgba(245, 158, 11, 0.04);
+            color: var(--primary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            padding: 12px;
+            text-align: center;
+        }
+
+        .add-book-card:hover {
+            background: var(--primary-dim);
+            border-color: var(--primary);
+            transform: translateY(-3px);
+        }
+
+        .add-circle-icon {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            border: 2px solid var(--primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            margin-bottom: 10px;
+            transition: transform 0.2s ease;
+        }
+
+        .add-book-card:hover .add-circle-icon {
+            transform: scale(1.1);
+            background: var(--primary);
+            color: #0B0F19;
+        }
+
+        /* ─── RIGHT MAIN PANEL: HEADER + BOOK PREVIEW + 1/300 PAGINATION ─── */
+        .preview-stage {
+            flex: 1;
+            background-color: var(--bg-stage);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* Prototype Right Header: "Name" on Left, "Export ▾" on Right */
+        .stage-header {
+            min-height: 64px;
+            padding: 10px 24px;
+            background-color: var(--bg-panel);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            flex-wrap: wrap;
+            z-index: 25;
+        }
+
+        .selected-book-info {
+            min-width: 0;
+            flex: 1;
+        }
+
+        .selected-book-name {
+            font-size: 1.15rem;
+            font-weight: 700;
+            color: var(--text-main);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .selected-book-author {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        .stage-header-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        /* Reader Toolbar (Chapter Select, Font Size, Theme) */
+        .reader-tools {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: var(--bg-main);
+            padding: 4px 8px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+        }
+
+        .chapter-select {
+            background: transparent;
+            color: var(--text-main);
+            border: none;
+            font-family: 'DM Sans', sans-serif;
+            font-size: 0.8rem;
+            font-weight: 600;
+            max-width: 170px;
+            outline: none;
+            cursor: pointer;
+        }
+
+        .chapter-select option {
+            background: var(--bg-panel);
+            color: var(--text-main);
+        }
+
+        .tool-icon-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            width: 28px;
+            height: 28px;
+            border-radius: 6px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.85rem;
+            font-weight: 700;
+        }
+
+        .tool-icon-btn:hover {
+            background: var(--bg-card);
+            color: var(--text-main);
+        }
+
+        /* Export Dropdown Wrapper (Matching Prototype Top-Right Button) */
+        .export-dropdown-wrap {
+            position: relative;
+        }
+
+        .export-btn {
+            background: linear-gradient(135deg, #F59E0B, #D97706);
+            color: #0B0F19;
+            border: none;
+            padding: 9px 18px;
+            font-size: 0.9rem;
+            font-weight: 700;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 4px 15px rgba(245, 158, 11, 0.25);
+            transition: all 0.2s ease;
+        }
+
+        .export-btn:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(245, 158, 11, 0.4);
+        }
+
+        .export-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        .export-menu {
+            position: absolute;
+            top: calc(100% + 8px);
+            right: 0;
+            width: 270px;
+            background: var(--bg-panel);
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            border-radius: var(--radius-md);
+            box-shadow: 0 18px 40px rgba(0, 0, 0, 0.65);
+            padding: 8px;
+            display: none;
+            flex-direction: column;
+            gap: 4px;
+            z-index: 100;
+        }
+
+        .export-menu.open {
+            display: flex;
+            animation: fadeDown 0.18s ease-out;
+        }
+
+        @keyframes fadeDown {
+            from { opacity: 0; transform: translateY(-8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .export-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 12px;
+            border-radius: var(--radius-sm);
+            background: transparent;
+            border: none;
+            color: var(--text-main);
+            font-family: 'DM Sans', sans-serif;
+            text-align: left;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .export-item:hover {
+            background: var(--bg-card);
+        }
+
+        .export-item i {
+            font-size: 1.2rem;
+            width: 24px;
+            text-align: center;
+        }
+
+        .export-item-title {
+            font-size: 0.86rem;
+            font-weight: 700;
+            display: block;
+        }
+
+        .export-item-sub {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            display: block;
+        }
+
+        /* ─── CENTER BOOK PAGE VIEWPORT ─── */
+        .reader-viewport {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px 28px;
+            overflow: hidden;
+            position: relative;
+            min-height: 0;
+        }
+
+        .book-page-sheet {
+            width: 100%;
+            max-width: 780px;
+            height: 100%;
+            background-color: var(--page-bg);
+            color: var(--page-text);
+            border: 1px solid var(--page-border);
+            border-radius: var(--radius-md);
+            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.65);
+            padding: 36px 48px;
+            overflow-y: auto;
+            font-size: var(--reader-font-size);
+            line-height: 1.75;
+            transition: background-color 0.25s, color 0.25s;
+        }
+
+        .book-page-sheet::-webkit-scrollbar {
+            width: 8px;
+        }
+        .book-page-sheet::-webkit-scrollbar-thumb {
+            background: rgba(100, 116, 139, 0.35);
+            border-radius: 4px;
+        }
+
+        .book-page-sheet h1, .book-page-sheet h2, .book-page-sheet h3 {
+            color: var(--page-text);
+            margin: 0.6em 0 0.5em;
+            line-height: 1.3;
+        }
+
+        .book-page-sheet p {
+            margin-bottom: 1em;
+            text-align: justify;
+        }
+
+        .book-page-sheet img, .book-page-sheet svg {
+            max-width: 100%;
+            max-height: 62vh;
+            height: auto;
+            display: block;
+            margin: 16px auto;
+            border-radius: 6px;
+        }
+
+        /* Side Floating Page Flip Buttons */
+        .page-nav-btn {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: rgba(17, 24, 39, 0.8);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.15rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            z-index: 10;
+        }
+
+        .page-nav-btn:hover:not(:disabled) {
+            background: var(--primary);
+            color: #0B0F19;
+            border-color: var(--primary);
+        }
+
+        .page-nav-btn:disabled {
+            opacity: 0.25;
+            cursor: not-allowed;
+        }
+
+        .page-prev { left: 16px; }
+        .page-next { right: 16px; }
+
+        /* ─── BOTTOM PAGINATION BAR (PROTOTYPE "1 / 300") ─── */
+        .stage-footer {
+            height: 64px;
+            background-color: var(--bg-panel);
+            border-top: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 24px;
+            gap: 20px;
+            flex-shrink: 0;
+        }
+
+        .page-counter-pill {
+            background: var(--bg-main);
+            border: 1px solid var(--border);
+            padding: 6px 16px;
+            border-radius: 999px;
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: var(--primary);
+            min-width: 110px;
+            text-align: center;
+        }
+
+        .page-slider-wrap {
+            flex: 1;
+            max-width: 420px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .page-slider {
+            width: 100%;
+            accent-color: var(--primary);
+            cursor: pointer;
+        }
+
+        /* Empty State Box */
+        .empty-stage {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 40px;
+            border: 2px dashed rgba(255, 255, 255, 0.15);
+            border-radius: var(--radius-lg);
+            background: rgba(17, 24, 39, 0.5);
+            max-width: 500px;
+        }
+
+        .empty-stage i {
+            font-size: 3.4rem;
+            color: var(--primary);
+            margin-bottom: 14px;
+        }
+
+        /* Overlays */
+        .drag-overlay, .loading-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(11, 15, 25, 0.9);
+            backdrop-filter: blur(8px);
+            z-index: 999;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .drag-overlay {
+            border: 4px dashed var(--primary);
+            margin: 16px;
+            border-radius: var(--radius-lg);
+        }
+
+        .drag-overlay.active, .loading-overlay.active {
+            display: flex;
+        }
+
+        .spinner {
+            width: 46px;
+            height: 46px;
+            border: 4px solid rgba(245, 158, 11, 0.2);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Toast Notification */
+        .toast-notification {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            background: var(--bg-card);
+            border: 1px solid var(--secondary);
+            color: var(--text-main);
+            padding: 12px 18px;
+            border-radius: var(--radius-sm);
+            font-size: 0.88rem;
+            font-weight: 600;
+            box-shadow: 0 12px 30px rgba(0,0,0,0.6);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            z-index: 1050;
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.3s ease;
+        }
+
+        .toast-notification.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        /* Responsive Mobile Styles */
+        @media (max-width: 768px) {
+            .mobile-view-tabs {
+                display: flex;
+            }
+            .workspace {
+                height: calc(100vh - 106px);
+            }
+            .library-sidebar {
+                width: 100%;
+                max-width: 100%;
+                border-right: none;
+            }
+            .library-sidebar.mobile-hidden,
+            .preview-stage.mobile-hidden {
+                display: none !important;
+            }
+            .book-page-sheet {
+                padding: 20px 18px;
+            }
+            .page-prev { left: 6px; width: 36px; height: 36px; }
+            .page-next { right: 6px; width: 36px; height: 36px; }
+            .stage-header { padding: 10px 14px; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Hidden File & Directory Inputs -->
+    <input type="file" id="epubFileInput" multiple accept=".epub,application/epub+zip" style="display:none">
+    <input type="file" id="epubFolderInput" webkitdirectory directory multiple style="display:none">
+
+    <!-- Drag & Drop Overlay -->
+    <div class="drag-overlay" id="dragOverlay">
+        <i class="bi bi-journal-arrow-down" style="font-size: 4rem; color: var(--primary);"></i>
+        <h2>Drop EPUB Files or Folders Here</h2>
+        <p style="color: var(--text-muted);">All nested folders will be scanned for .epub books automatically</p>
+    </div>
+
+    <!-- Loading & Conversion Progress Overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="spinner"></div>
+        <div style="font-size: 1.05rem; font-weight: 700;" id="loadingTitle">Parsing EPUB Books...</div>
+        <div style="font-size: 0.85rem; color: var(--text-muted);" id="loadingSub">Extracting covers & chapters...</div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div class="toast-notification" id="toastBox">
+        <i class="bi bi-check-circle-fill" style="color: var(--secondary);"></i>
+        <span id="toastText">Ready</span>
+    </div>
+
+    <!-- ─── TOP NAVIGATION BAR ─── -->
+    <header class="app-topbar">
+        <div class="brand">
+            <i class="bi bi-book-half"></i>
+            <span>EpubStudio</span>
+        </div>
+
+        <div class="top-controls">
+            <button class="btn" onclick="document.getElementById('epubFileInput').click()">
+                <i class="bi bi-file-earmark-plus"></i> Add EPUBs
+            </button>
+            <button class="btn" onclick="document.getElementById('epubFolderInput').click()">
+                <i class="bi bi-folder-plus"></i> Add Folder
+            </button>
+        </div>
+    </header>
+
+    <!-- Mobile View Switcher -->
+    <div class="mobile-view-tabs">
+        <button class="mobile-tab-btn active" id="mobTabLibrary" onclick="switchMobileView('library')">
+            <i class="bi bi-grid-fill"></i> Bookshelf (<span id="mobBookCount">0</span>)
+        </button>
+        <button class="mobile-tab-btn" id="mobTabReader" onclick="switchMobileView('reader')">
+            <i class="bi bi-book"></i> Book Preview & Export
+        </button>
+    </div>
+
+    <!-- ─── MAIN SPLIT WORKSPACE (MATCHING PROTOTYPE) ─── -->
+    <main class="workspace">
+
+        <!-- LEFT PANEL: 2-COLUMN BOOKSHELF GRID (B1, B2, B3, +) -->
+        <aside class="library-sidebar" id="librarySidebar">
+            <div class="library-header">
+                <div class="library-title-row">
+                    <span class="library-title">Bookshelf</span>
+                    <span class="book-count-pill" id="bookCountBadge">0 Books</span>
+                </div>
+                <div class="search-wrap">
+                    <i class="bi bi-search"></i>
+                    <input type="text" id="bookSearchInput" class="search-input" placeholder="Search books..." oninput="renderBookGrid()">
+                </div>
+            </div>
+
+            <div class="book-grid" id="bookGrid">
+                <!-- Populated dynamically with Book Cards + (+) Add Card -->
+            </div>
+        </aside>
+
+        <!-- RIGHT PANEL: BOOK NAME, EXPORT DROPDOWN, PAGE VIEWPORT & 1/300 COUNTER -->
+        <section class="preview-stage mobile-hidden" id="previewStage">
+
+            <!-- Prototype Top Header: Name on Left, Export Dropdown on Right -->
+            <div class="stage-header">
+                <div class="selected-book-info">
+                    <div class="selected-book-name" id="activeBookTitle">Select or Drop a Book</div>
+                    <div class="selected-book-author" id="activeBookAuthor">No EPUB loaded</div>
+                </div>
+
+                <div class="stage-header-actions">
+                    <!-- Reader Controls -->
+                    <div class="reader-tools" id="readerTools" style="display: none;">
+                        <select id="chapterSelect" class="chapter-select" onchange="jumpToChapter(this.value)" title="Jump to Chapter"></select>
+                        <button class="tool-icon-btn" onclick="adjustFontSize(-1)" title="Decrease Font Size">A-</button>
+                        <button class="tool-icon-btn" onclick="adjustFontSize(1)" title="Increase Font Size">A+</button>
+                        <button class="tool-icon-btn" onclick="cycleReaderTheme()" title="Switch Paper Theme">
+                            <i class="bi bi-palette2"></i>
+                        </button>
+                    </div>
+
+                    <!-- Prototype Export Dropdown Button -->
+                    <div class="export-dropdown-wrap">
+                        <button class="export-btn" id="exportDropdownBtn" onclick="toggleExportMenu(event)" disabled>
+                            <span>Export</span>
+                            <i class="bi bi-chevron-down"></i>
+                        </button>
+
+                        <div class="export-menu" id="exportMenu">
+                            <button class="export-item" onclick="exportBook('pdf-direct')">
+                                <i class="bi bi-file-earmark-pdf-fill" style="color: #EF4444;"></i>
+                                <div>
+                                    <span class="export-item-title">PDF Document (.pdf)</span>
+                                    <span class="export-item-sub">Direct client-side PDF download</span>
+                                </div>
+                            </button>
+                            <button class="export-item" onclick="exportBook('pdf-vector')">
+                                <i class="bi bi-printer-fill" style="color: #F59E0B;"></i>
+                                <div>
+                                    <span class="export-item-title">PDF Vector Print (Fast / 300+ pgs)</span>
+                                    <span class="export-item-sub">Searchable text, zero memory limit</span>
+                                </div>
+                            </button>
+                            <button class="export-item" onclick="exportBook('html')">
+                                <i class="bi bi-filetype-html" style="color: #3B82F6;"></i>
+                                <div>
+                                    <span class="export-item-title">Standalone Web Book (.html)</span>
+                                    <span class="export-item-sub">Single self-contained HTML with images</span>
+                                </div>
+                            </button>
+                            <button class="export-item" onclick="exportBook('md')">
+                                <i class="bi bi-filetype-md" style="color: #A855F7;"></i>
+                                <div>
+                                    <span class="export-item-title">Markdown (.md)</span>
+                                    <span class="export-item-sub">Clean structured text for notes/AI</span>
+                                </div>
+                            </button>
+                            <button class="export-item" onclick="exportBook('txt')">
+                                <i class="bi bi-file-earmark-text-fill" style="color: #94A3B8;"></i>
+                                <div>
+                                    <span class="export-item-title">Plain Text (.txt)</span>
+                                    <span class="export-item-sub">Unformatted raw book text</span>
+                                </div>
+                            </button>
+                            <button class="export-item" onclick="exportBook('zip')">
+                                <i class="bi bi-file-earmark-zip-fill" style="color: #10B981;"></i>
+                                <div>
+                                    <span class="export-item-title">Extracted Assets (.zip)</span>
+                                    <span class="export-item-sub">All internal book images & chapters</span>
+                                </div>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Book Page Preview Box -->
+            <div class="reader-viewport">
+                <!-- Empty State -->
+                <div class="empty-stage" id="emptyStage">
+                    <i class="bi bi-journal-richtext"></i>
+                    <h2 style="font-size: 1.3rem; margin-bottom: 8px;">Drag & Drop EPUB Books or Folders</h2>
+                    <p style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 20px; line-height: 1.5;">
+                        Drop `.epub` files or entire book directories anywhere. Browse covers on the left, read pages on the right, and convert to PDF, HTML, Markdown, or TXT locally.
+                    </p>
+                    <div style="display: flex; gap: 10px;">
+                        <button class="btn btn-gold" onclick="document.getElementById('epubFileInput').click()">
+                            <i class="bi bi-file-earmark-plus"></i> Select EPUB Files
+                        </button>
+                        <button class="btn" onclick="document.getElementById('epubFolderInput').click()">
+                            <i class="bi bi-folder-plus"></i> Select Folder
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Previous Page Arrow -->
+                <button class="page-nav-btn page-prev" id="prevPageBtn" onclick="changePage(-1)" style="display: none;" title="Previous Page (Left Arrow)">
+                    <i class="bi bi-chevron-left"></i>
+                </button>
+
+                <!-- Active Book Page Sheet -->
+                <article class="book-page-sheet" id="bookPageSheet" style="display: none;"></article>
+
+                <!-- Next Page Arrow -->
+                <button class="page-nav-btn page-next" id="nextPageBtn" onclick="changePage(1)" style="display: none;" title="Next Page (Right Arrow)">
+                    <i class="bi bi-chevron-right"></i>
+                </button>
+            </div>
+
+            <!-- Prototype Bottom Bar: 1 / 300 Counter & Scrubber -->
+            <div class="stage-footer">
+                <span style="font-size: 0.78rem; color: var(--text-muted);" id="chapterIndicator">—</span>
+
+                <div class="page-slider-wrap" id="sliderWrap" style="visibility: hidden;">
+                    <input type="range" id="pageSlider" class="page-slider" min="1" max="1" value="1" oninput="goToPage(parseInt(this.value, 10) - 1)">
+                </div>
+
+                <!-- Prototype "1 / 300" Counter -->
+                <div class="page-counter-pill" id="pageCounterPill">0 / 0</div>
+            </div>
+
+        </section>
+    </main>
+
+    <script>
+        /* ═══════════════════════════════════════════════════════════════════
+           STATE & CONFIGURATION
+        ═══════════════════════════════════════════════════════════════════ */
+        let books = []; // Array of { id, file, fileName, title, author, coverUrl, pages: [{html, text, chapterTitle}], chapters: [{title, pageIndex}] }
+        let activeBookId = null;
+        let currentPageIndex = 0;
+        let readerFontSize = 16;
+        const readerThemes = ['paper', 'sepia', 'dark'];
+        let currentThemeIdx = 0;
+
+        function showLoading(title, sub = '') {
+            document.getElementById('loadingTitle').textContent = title;
+            document.getElementById('loadingSub').textContent = sub;
+            document.getElementById('loadingOverlay').classList.add('active');
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingOverlay').classList.remove('active');
+        }
+
+        function showToast(msg) {
+            const box = document.getElementById('toastBox');
+            document.getElementById('toastText').textContent = msg;
+            box.classList.add('show');
+            setTimeout(() => box.classList.remove('show'), 3600);
+        }
+
+        function switchMobileView(view) {
+            const lib = document.getElementById('librarySidebar');
+            const reader = document.getElementById('previewStage');
+            const tabLib = document.getElementById('mobTabLibrary');
+            const tabRead = document.getElementById('mobTabReader');
+
+            if (view === 'library') {
+                lib.classList.remove('mobile-hidden');
+                reader.classList.add('mobile-hidden');
+                tabLib.classList.add('active');
+                tabRead.classList.remove('active');
+            } else {
+                lib.classList.add('mobile-hidden');
+                reader.classList.remove('mobile-hidden');
+                tabLib.classList.remove('active');
+                tabRead.classList.add('active');
+            }
+        }
+
+        /* ═══════════════════════════════════════════════════════════════════
+           DRAG & DROP + RECURSIVE FOLDER INGESTION
+        ═══════════════════════════════════════════════════════════════════ */
+        window.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            document.getElementById('dragOverlay').classList.add('active');
+        });
+
+        window.addEventListener('dragleave', (e) => {
+            if (!e.relatedTarget || e.clientX <= 0 || e.clientY <= 0 || e.clientX >= window.innerWidth || e.clientY >= window.innerHeight) {
+                document.getElementById('dragOverlay').classList.remove('active');
+            }
+        });
+
+        window.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            document.getElementById('dragOverlay').classList.remove('active');
+
+            const items = e.dataTransfer.items;
+            if (!items || items.length === 0) return;
+
+            const entries = [];
+            const directFiles = [];
+            for (let i = 0; i < items.length; i++) {
+                const item = items[i];
+                if (item.kind === 'file') {
+                    const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+                    if (entry) entries.push(entry);
+                    else {
+                        const f = item.getAsFile();
+                        if (f) directFiles.push(f);
+                    }
+                }
+            }
+
+            showLoading('Scanning Dropped Items...', 'Looking for .epub files...');
+            const collectedFiles = [...directFiles];
+            for (const entry of entries) {
+                await scanEntryForEpubs(entry, collectedFiles);
+            }
+
+            await processEpubFiles(collectedFiles);
+            hideLoading();
+        });
+
+        async function scanEntryForEpubs(entry, results) {
+            if (entry.isFile) {
+                const file = await new Promise(res => entry.file(res, () => res(null)));
+                if (file && /\.epub$/i.test(file.name)) {
+                    results.push(file);
+                }
+            } else if (entry.isDirectory) {
+                const reader = entry.createReader();
+                let batch;
+                do {
+                    batch = await new Promise(res => reader.readEntries(res, () => res([])));
+                    for (const child of batch) {
+                        await scanEntryForEpubs(child, results);
+                    }
+                } while (batch.length > 0);
+            }
+        }
+
+        document.getElementById('epubFileInput').addEventListener('change', async (e) => {
+            if (e.target.files.length > 0) {
+                showLoading('Loading EPUB Files...');
+                await processEpubFiles(Array.from(e.target.files));
+                hideLoading();
+                e.target.value = '';
+            }
+        });
+
+        document.getElementById('epubFolderInput').addEventListener('change', async (e) => {
+            if (e.target.files.length > 0) {
+                showLoading('Scanning Folder for EPUBs...');
+                await processEpubFiles(Array.from(e.target.files));
+                hideLoading();
+                e.target.value = '';
+            }
+        });
+
+        /* ═══════════════════════════════════════════════════════════════════
+           CORE EPUB PARSER, COVER EXTRACTOR & VIRTUAL PAGINATOR
+        ═══════════════════════════════════════════════════════════════════ */
+        async function processEpubFiles(fileList) {
+            const epubFiles = fileList.filter(f => f && /\.epub$/i.test(f.name));
+            if (epubFiles.length === 0) {
+                showToast('No .epub files found in selection.');
+                return;
+            }
+
+            let added = 0;
+            for (let i = 0; i < epubFiles.length; i++) {
+                const file = epubFiles[i];
+                document.getElementById('loadingSub').textContent = `Parsing (${i + 1}/${epubFiles.length}): ${file.name}`;
+                try {
+                    const parsedBook = await parseSingleEpub(file);
+                    if (parsedBook) {
+                        books.push(parsedBook);
+                        added++;
+                    }
+                } catch (err) {
+                    console.error('Failed to parse EPUB:', file.name, err);
+                }
+            }
+
+            renderBookGrid();
+            if (!activeBookId && books.length > 0) {
+                selectBook(books[0].id);
+            } else if (added > 0 && books.length > 0) {
+                selectBook(books[books.length - 1].id);
+            }
+
+            if (added > 0) {
+                showToast(`Loaded ${added} EPUB book${added === 1 ? '' : 's'}!`);
+            }
+        }
+
+        function resolveZipPath(baseDir, relativeHref) {
+            if (!relativeHref) return '';
+            const cleanHref = decodeURIComponent(relativeHref.split('#')[0]);
+            const stack = baseDir ? baseDir.split('/').filter(Boolean) : [];
+            const parts = cleanHref.split('/');
+            for (const part of parts) {
+                if (part === '.' || part === '') continue;
+                if (part === '..') stack.pop();
+                else stack.push(part);
+            }
+            return stack.join('/');
+        }
+
+        function generateProceduralCover(title, author) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 400;
+            canvas.height = 560;
+            const ctx = canvas.getContext('2d');
+
+            // Deep Navy & Gold Gradient Cover
+            const grad = ctx.createLinearGradient(0, 0, 400, 560);
+            grad.addColorStop(0, '#0F172A');
+            grad.addColorStop(1, '#1E293B');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, 400, 560);
+
+            // Ornamental Border
+            ctx.strokeStyle = '#F59E0B';
+            ctx.lineWidth = 4;
+            ctx.strokeRect(22, 22, 356, 516);
+
+            ctx.fillStyle = '#F59E0B';
+            ctx.font = 'bold 14px "DM Sans", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('EPUB EDITION', 200, 75);
+
+            // Wrap Title
+            ctx.fillStyle = '#F8FAFC';
+            ctx.font = 'bold 26px "DM Sans", sans-serif';
+            const words = (title || 'Untitled Book').split(' ');
+            let line = '';
+            let y = 190;
+            for (let n = 0; n < words.length; n++) {
+                const testLine = line + words[n] + ' ';
+                if (ctx.measureText(testLine).width > 300 && n > 0) {
+                    ctx.fillText(line.trim(), 200, y);
+                    line = words[n] + ' ';
+                    y += 36;
+                    if (y > 390) break;
+                } else {
+                    line = testLine;
+                }
+            }
+            ctx.fillText(line.trim(), 200, y);
+
+            // Author
+            ctx.fillStyle = '#94A3B8';
+            ctx.font = '500 17px "DM Sans", sans-serif';
+            ctx.fillText((author || 'Unknown Author').slice(0, 36), 200, 485);
+
+            return canvas.toDataURL('image/jpeg', 0.9);
+        }
+
+        async function parseSingleEpub(file) {
+            const zip = await JSZip.loadAsync(file);
+            const parser = new DOMParser();
+
+            // 1. Locate OPF package via META-INF/container.xml
+            const containerXmlFile = zip.file('META-INF/container.xml');
+            let opfPath = '';
+            if (containerXmlFile) {
+                const containerText = await containerXmlFile.async('text');
+                const containerDoc = parser.parseFromString(containerText, 'application/xml');
+                const rootFile = containerDoc.querySelector('rootfile');
+                if (rootFile) opfPath = rootFile.getAttribute('full-path') || '';
+            }
+
+            if (!opfPath) {
+                const opfMatch = Object.keys(zip.files).find(k => /\.opf$/i.test(k));
+                if (!opfMatch) throw new Error('Invalid EPUB: No .opf file found.');
+                opfPath = opfMatch;
+            }
+
+            const opfBaseDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/')) : '';
+            const opfText = await zip.file(opfPath).async('text');
+            const opfDoc = parser.parseFromString(opfText, 'application/xml');
+
+            // 2. Extract Metadata
+            const titleNode = opfDoc.getElementsByTagNameNS('*', 'title')[0] || opfDoc.querySelector('title');
+            const creatorNode = opfDoc.getElementsByTagNameNS('*', 'creator')[0] || opfDoc.querySelector('creator');
+            const title = (titleNode && titleNode.textContent.trim()) || file.name.replace(/\.epub$/i, '');
+            const author = (creatorNode && creatorNode.textContent.trim()) || 'Unknown Author';
+
+            // 3. Build Manifest Map & Convert Embedded Images to Data URLs
+            const manifest = {};
+            const imageMap = {}; // zipPath -> DataURL
+            const itemNodes = Array.from(opfDoc.getElementsByTagNameNS('*', 'item'));
+
+            for (const item of itemNodes) {
+                const id = item.getAttribute('id');
+                const href = item.getAttribute('href');
+                const mediaType = item.getAttribute('media-type') || '';
+                const props = item.getAttribute('properties') || '';
+                const fullPath = resolveZipPath(opfBaseDir, href);
+
+                manifest[id] = { id, href, fullPath, mediaType, props };
+
+                if (mediaType.startsWith('image/')) {
+                    const imgFile = zip.file(fullPath) || zip.file(decodeURIComponent(fullPath));
+                    if (imgFile) {
+                        const b64 = await imgFile.async('base64');
+                        imageMap[fullPath] = `data:${mediaType};base64,${b64}`;
+                    }
+                }
+            }
+
+            // 4. Identify Book Cover (First Page Preview)
+            let coverUrl = null;
+            const coverMeta = opfDoc.querySelector('meta[name="cover"]');
+            if (coverMeta) {
+                const coverId = coverMeta.getAttribute('content');
+                if (manifest[coverId] && imageMap[manifest[coverId].fullPath]) {
+                    coverUrl = imageMap[manifest[coverId].fullPath];
+                }
+            }
+            if (!coverUrl) {
+                const coverItem = Object.values(manifest).find(m =>
+                    m.props.includes('cover-image') || /cover/i.test(m.id) || /cover/i.test(m.href)
+                );
+                if (coverItem && imageMap[coverItem.fullPath]) {
+                    coverUrl = imageMap[coverItem.fullPath];
+                }
+            }
+            if (!coverUrl) {
+                const firstImageKey = Object.keys(imageMap)[0];
+                if (firstImageKey) coverUrl = imageMap[firstImageKey];
+            }
+            if (!coverUrl) {
+                coverUrl = generateProceduralCover(title, author);
+            }
+
+            // 5. Parse Spine Chapters & Paginate into Virtual Pages (~1/300 style)
+            const spineNodes = Array.from(opfDoc.getElementsByTagNameNS('*', 'itemref'));
+            const pages = [];
+            const chapters = [];
+
+            // Page 1: Dedicated Cover & Title Page
+            pages.push({
+                chapterTitle: 'Cover & Title',
+                html: `
+                    <div style="text-align:center; padding: 10px 0;">
+                        <img src="${coverUrl}" alt="Cover" style="max-height: 360px; box-shadow: 0 10px 25px rgba(0,0,0,0.25); border-radius: 8px; margin-bottom: 20px;">
+                        <h1 style="font-size: 1.6rem; margin-bottom: 6px;">${title}</h1>
+                        <p style="text-align:center; color: var(--page-muted); font-weight: 600;">${author}</p>
+                    </div>
+                `,
+                text: `${title}\nBy ${author}\n`
+            });
+            chapters.push({ title: '1. Cover Page', pageIndex: 0 });
+
+            let chapterCounter = 1;
+            for (const ref of spineNodes) {
+                const idref = ref.getAttribute('idref');
+                const item = manifest[idref];
+                if (!item) continue;
+
+                const chapterFile = zip.file(item.fullPath) || zip.file(decodeURIComponent(item.fullPath));
+                if (!chapterFile) continue;
+
+                const rawHtml = await chapterFile.async('text');
+                const chapterDoc = parser.parseFromString(rawHtml, 'text/html');
+                const chapterDir = item.fullPath.includes('/') ? item.fullPath.substring(0, item.fullPath.lastIndexOf('/')) : '';
+
+                // Rewrite all internal image paths to in-memory DataURLs
+                chapterDoc.querySelectorAll('img, image').forEach(img => {
+                    const src = img.getAttribute('src') || img.getAttribute('xlink:href') || img.getAttribute('href');
+                    if (src && !src.startsWith('data:') && !src.startsWith('http')) {
+                        const resolvedImgPath = resolveZipPath(chapterDir, src);
+                        if (imageMap[resolvedImgPath]) {
+                            if (img.tagName.toLowerCase() === 'image') {
+                                const replacementImg = chapterDoc.createElement('img');
+                                replacementImg.src = imageMap[resolvedImgPath];
+                                img.replaceWith(replacementImg);
+                            } else {
+                                img.src = imageMap[resolvedImgPath];
+                            }
+                        }
+                    }
+                });
+
+                // Remove scripts, styles, and unsafe links
+                chapterDoc.querySelectorAll('script, style, link').forEach(el => el.remove());
+
+                const headingEl = chapterDoc.querySelector('h1, h2, h3, title');
+                const chapterTitle = (headingEl && headingEl.textContent.trim())
+                    ? headingEl.textContent.trim().slice(0, 45)
+                    : `Section ${chapterCounter}`;
+
+                const bodyEl = chapterDoc.body;
+                if (!bodyEl || !bodyEl.textContent.trim() && !bodyEl.querySelector('img')) continue;
+
+                chapterCounter++;
+                chapters.push({ title: `${chapterCounter}. ${chapterTitle}`, pageIndex: pages.length });
+
+                // Slice Chapter into Balanced Readable Pages (~1350 chars per page)
+                const blocks = Array.from(bodyEl.children);
+                if (blocks.length === 0) {
+                    pages.push({
+                        chapterTitle,
+                        html: bodyEl.innerHTML,
+                        text: bodyEl.textContent.trim()
+                    });
+                } else {
+                    let currentChunkHtml = '';
+                    let currentChunkText = '';
+
+                    for (const block of blocks) {
+                        const blockHtml = block.outerHTML;
+                        const blockText = block.textContent || '';
+                        const hasImage = block.tagName === 'IMG' || block.querySelector('img');
+
+                        if ((currentChunkText.length + blockText.length > 1350 && currentChunkHtml !== '') || (hasImage && currentChunkText.length > 600)) {
+                            pages.push({
+                                chapterTitle,
+                                html: currentChunkHtml,
+                                text: currentChunkText.trim()
+                            });
+                            currentChunkHtml = blockHtml;
+                            currentChunkText = blockText + '\n\n';
+                        } else {
+                            currentChunkHtml += blockHtml;
+                            currentChunkText += blockText + '\n\n';
+                        }
+                    }
+
+                    if (currentChunkHtml.trim() !== '') {
+                        pages.push({
+                            chapterTitle,
+                            html: currentChunkHtml,
+                            text: currentChunkText.trim()
+                        });
+                    }
+                }
+            }
+
+            return {
+                id: 'book_' + Math.random().toString(36).substring(2, 10) + '_' + Date.now(),
+                file,
+                fileName: file.name,
+                title,
+                author,
+                coverUrl,
+                pages,
+                chapters
+            };
+        }
+
+        /* ═══════════════════════════════════════════════════════════════════
+           RENDER LEFT BOOKSHELF GRID & RIGHT READER STAGE
+        ═══════════════════════════════════════════════════════════════════ */
+        function renderBookGrid() {
+            const gridEl = document.getElementById('bookGrid');
+            const query = document.getElementById('bookSearchInput').value.trim().toLowerCase();
+
+            document.getElementById('bookCountBadge').textContent = `${books.length} Book${books.length === 1 ? '' : 's'}`;
+            document.getElementById('mobBookCount').textContent = books.length;
+
+            const visibleBooks = books.filter(b =>
+                !query || b.title.toLowerCase().includes(query) || b.author.toLowerCase().includes(query)
+            );
+
+            gridEl.innerHTML = '';
+
+            visibleBooks.forEach(book => {
+                const card = document.createElement('div');
+                card.className = `book-card ${book.id === activeBookId ? 'active' : ''}`;
+                card.onclick = () => {
+                    selectBook(book.id);
+                    if (window.innerWidth <= 768) switchMobileView('reader');
+                };
+
+                card.innerHTML = `
+                    <div class="book-cover-box">
+                        <img src="${book.coverUrl}" alt="${book.title}">
+                    </div>
+                    <div class="book-card-title" title="${book.title}">${book.title}</div>
+                    <div class="book-card-pages">${book.pages.length} pages</div>
+                `;
+                gridEl.appendChild(card);
+            });
+
+            // Prototype (+) Add More Card Always Placed at End of Grid
+            const addCard = document.createElement('div');
+            addCard.className = 'add-book-card';
+            addCard.onclick = () => document.getElementById('epubFileInput').click();
+            addCard.title = 'Click to add more EPUB files or drag & drop folders';
+            addCard.innerHTML = `
+                <div class="add-circle-icon">
+                    <i class="bi bi-plus-lg"></i>
+                </div>
+                <div style="font-size: 0.85rem; font-weight: 700;">Add Books</div>
+                <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 4px;">EPUB or Folder</div>
+            `;
+            gridEl.appendChild(addCard);
+        }
+
+        function selectBook(bookId) {
+            const book = books.find(b => b.id === bookId);
+            if (!book) return;
+
+            activeBookId = bookId;
+            currentPageIndex = 0;
+
+            renderBookGrid();
+
+            // Populate Header & TOC
+            document.getElementById('activeBookTitle').textContent = book.title;
+            document.getElementById('activeBookAuthor').textContent = `${book.author} • ${book.fileName}`;
+            document.getElementById('exportDropdownBtn').disabled = false;
+            document.getElementById('readerTools').style.display = 'flex';
+            document.getElementById('emptyStage').style.display = 'none';
+            document.getElementById('bookPageSheet').style.display = 'block';
+            document.getElementById('prevPageBtn').style.display = 'flex';
+            document.getElementById('nextPageBtn').style.display = 'flex';
+            document.getElementById('sliderWrap').style.visibility = 'visible';
+
+            const chapSelect = document.getElementById('chapterSelect');
+            chapSelect.innerHTML = '';
+            book.chapters.forEach(ch => {
+                const opt = document.createElement('option');
+                opt.value = ch.pageIndex;
+                opt.textContent = ch.title;
+                chapSelect.appendChild(opt);
+            });
+
+            const slider = document.getElementById('pageSlider');
+            slider.max = book.pages.length;
+            slider.value = 1;
+
+            renderCurrentPage();
+        }
+
+        function renderCurrentPage() {
+            const book = books.find(b => b.id === activeBookId);
+            if (!book) return;
+
+            const page = book.pages[currentPageIndex];
+            const sheet = document.getElementById('bookPageSheet');
+            sheet.innerHTML = page.html;
+            sheet.scrollTop = 0;
+
+            // Update "1 / 300" Counter & Slider
+            document.getElementById('pageCounterPill').textContent = `${currentPageIndex + 1} / ${book.pages.length}`;
+            document.getElementById('pageSlider').value = currentPageIndex + 1;
+            document.getElementById('chapterIndicator').textContent = page.chapterTitle || '';
+
+            document.getElementById('prevPageBtn').disabled = currentPageIndex <= 0;
+            document.getElementById('nextPageBtn').disabled = currentPageIndex >= book.pages.length - 1;
+
+            // Sync TOC dropdown to active chapter
+            const chapSelect = document.getElementById('chapterSelect');
+            for (let i = book.chapters.length - 1; i >= 0; i--) {
+                if (currentPageIndex >= book.chapters[i].pageIndex) {
+                    chapSelect.value = book.chapters[i].pageIndex;
+                    break;
+                }
+            }
+        }
+
+        function changePage(delta) {
+            const book = books.find(b => b.id === activeBookId);
+            if (!book) return;
+            const next = currentPageIndex + delta;
+            if (next >= 0 && next < book.pages.length) {
+                currentPageIndex = next;
+                renderCurrentPage();
+            }
+        }
+
+        function goToPage(index) {
+            const book = books.find(b => b.id === activeBookId);
+            if (!book) return;
+            currentPageIndex = Math.max(0, Math.min(index, book.pages.length - 1));
+            renderCurrentPage();
+        }
+
+        function jumpToChapter(pageIdxStr) {
+            goToPage(parseInt(pageIdxStr, 10));
+        }
+
+        function adjustFontSize(delta) {
+            readerFontSize = Math.max(12, Math.min(26, readerFontSize + delta));
+            document.documentElement.style.setProperty('--reader-font-size', readerFontSize + 'px');
+        }
+
+        function cycleReaderTheme() {
+            currentThemeIdx = (currentThemeIdx + 1) % readerThemes.length;
+            const theme = readerThemes[currentThemeIdx];
+            if (theme === 'paper') {
+                document.documentElement.removeAttribute('data-reader-theme');
+            } else {
+                document.documentElement.setAttribute('data-reader-theme', theme);
+            }
+            showToast(`Reader theme: ${theme.toUpperCase()}`);
+        }
+
+        // Keyboard Navigation
+        window.addEventListener('keydown', (e) => {
+            if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'SELECT') return;
+            if (e.key === 'ArrowRight') changePage(1);
+            if (e.key === 'ArrowLeft') changePage(-1);
+        });
+
+        /* ═══════════════════════════════════════════════════════════════════
+           MULTI-FORMAT EXPORT ENGINE (PDF, VECTOR PDF, HTML, MD, TXT, ZIP)
+        ═══════════════════════════════════════════════════════════════════ */
+        function toggleExportMenu(e) {
+            e.stopPropagation();
+            document.getElementById('exportMenu').classList.toggle('open');
+        }
+
+        window.addEventListener('click', () => {
+            document.getElementById('exportMenu').classList.remove('open');
+        });
+
+        async function exportBook(format) {
+            const book = books.find(b => b.id === activeBookId);
+            if (!book) return;
+
+            const safeName = book.title.replace(/[<>:"/\\|?*]/g, '_').trim() || 'Book';
+
+            // 1. DIRECT PDF DOWNLOAD (html2pdf.js)
+            if (format === 'pdf-direct') {
+                showLoading('Generating PDF Document...', 'Rendering pages into downloadable PDF...');
+                try {
+                    const container = document.createElement('div');
+                    container.style.padding = '25px';
+                    container.style.fontFamily = "'DM Sans', sans-serif";
+                    container.style.color = '#111827';
+                    container.style.background = '#FFFFFF';
+                    container.style.lineHeight = '1.65';
+
+                    // Cap direct canvas PDF to first 60 pages to prevent browser canvas crash; suggest Vector PDF if larger
+                    const maxDirectPages = Math.min(book.pages.length, 60);
+                    for (let i = 0; i < maxDirectPages; i++) {
+                        const pageDiv = document.createElement('div');
+                        pageDiv.style.pageBreakAfter = 'always';
+                        pageDiv.style.marginBottom = '24px';
+                        pageDiv.innerHTML = book.pages[i].html;
+                        container.appendChild(pageDiv);
+                    }
+
+                    const opt = {
+                        margin: [12, 14, 12, 14],
+                        filename: `${safeName}.pdf`,
+                        image: { type: 'jpeg', quality: 0.92 },
+                        html2canvas: { scale: 1.5, useCORS: true },
+                        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+                        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+                    };
+
+                    await html2pdf().set(opt).from(container).save();
+                    hideLoading();
+                    showToast(`Downloaded "${safeName}.pdf"!`);
+                } catch (err) {
+                    hideLoading();
+                    alert('Direct PDF error: ' + err.message + '. Try "PDF Vector Print" for large books.');
+                }
+            }
+
+            // 2. HIGH-SPEED VECTOR PDF PRINT (Handles 300+ Pages Effortlessly)
+            else if (format === 'pdf-vector') {
+                showLoading('Preparing Full Vector PDF...', `Formatting all ${book.pages.length} pages...`);
+                setTimeout(() => {
+                    const printIframe = document.createElement('iframe');
+                    printIframe.style.position = 'fixed';
+                    printIframe.style.right = '0';
+                    printIframe.style.bottom = '0';
+                    printIframe.style.width = '0';
+                    printIframe.style.height = '0';
+                    printIframe.style.border = '0';
+                    document.body.appendChild(printIframe);
+
+                    const allPagesHtml = book.pages.map((p, idx) => `
+                        <div class="print-page">
+                            ${p.html}
+                            <div class="print-footer">${book.title} — Page ${idx + 1} of ${book.pages.length}</div>
+                        </div>
+                    `).join('');
+
+                    const doc = printIframe.contentWindow.document;
+                    doc.open();
+                    doc.write(`
+                        <!DOCTYPE html>
+                        <html>
+                        <head>
+                            <title>${book.title}</title>
+                            <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+                            <style>
+                                body { font-family: 'DM Sans', sans-serif; color: #111; line-height: 1.7; margin: 0; padding: 0; }
+                                .print-page { page-break-after: always; padding: 20mm 18mm; position: relative; }
+                                img { max-width: 100%; max-height: 210mm; display: block; margin: 12px auto; }
+                                .print-footer { margin-top: 24px; padding-top: 8px; border-top: 1px solid #ddd; font-size: 10pt; color: #666; text-align: center; }
+                            </style>
+                        </head>
+                        <body>${allPagesHtml}</body>
+                        </html>
+                    `);
+                    doc.close();
+
+                    setTimeout(() => {
+                        hideLoading();
+                        printIframe.contentWindow.focus();
+                        printIframe.contentWindow.print();
+                        setTimeout(() => printIframe.remove(), 2000);
+                    }, 700);
+                }, 150);
+            }
+
+            // 3. STANDALONE HTML EBOOK (.html)
+            else if (format === 'html') {
+                const bodyHtml = book.pages.map((p, i) => `
+                    <section style="max-width:760px;margin:28px auto;padding:32px;background:#fff;border-radius:10px;box-shadow:0 4px 14px rgba(0,0,0,0.06);">
+                        ${p.html}
+                        <div style="text-align:right;font-size:12px;color:#888;margin-top:16px;">Page ${i + 1} / ${book.pages.length}</div>
+                    </section>
+                `).join('');
+
+                const fullHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${book.title}</title><style>body{font-family:system-ui,sans-serif;background:#f1f5f9;color:#1e293b;line-height:1.7;margin:0;padding:20px;}img{max-width:100%;height:auto;display:block;margin:12px auto;}</style></head><body>${bodyHtml}</body></html>`;
+                const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
+                saveAs(blob, `${safeName}.html`);
+                showToast(`Exported "${safeName}.html"!`);
+            }
+
+            // 4. MARKDOWN (.md)
+            else if (format === 'md') {
+                let md = `# ${book.title}\n**Author:** ${book.author}\n\n---\n\n`;
+                book.pages.forEach((p, idx) => {
+                    md += `### [Page ${idx + 1} — ${p.chapterTitle}]\n\n${p.text}\n\n---\n\n`;
+                });
+                const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+                saveAs(blob, `${safeName}.md`);
+                showToast(`Exported "${safeName}.md"!`);
+            }
+
+            // 5. PLAIN TEXT (.txt)
+            else if (format === 'txt') {
+                const txt = book.pages.map((p, idx) => `--- PAGE ${idx + 1} / ${book.pages.length} ---\n${p.text}`).join('\n\n');
+                const blob = new Blob([txt], { type: 'text/plain;charset=utf-8' });
+                saveAs(blob, `${safeName}.txt`);
+                showToast(`Exported "${safeName}.txt"!`);
+            }
+
+            // 6. EXTRACTED EPUB ASSETS (.zip)
+            else if (format === 'zip') {
+                saveAs(book.file, `${safeName}_Archive.zip`);
+                showToast(`Downloaded "${safeName}_Archive.zip"!`);
+            }
+        }
+
+        // Initial Render of Empty Grid with (+) Card
+        renderBookGrid();
+    </script>
+</body>
+</html>
