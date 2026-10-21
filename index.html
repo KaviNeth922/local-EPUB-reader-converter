@@ -453,7 +453,7 @@
             font-family: 'DM Sans', sans-serif;
             font-size: 0.8rem;
             font-weight: 600;
-            max-width: 170px;
+            max-width: 190px;
             outline: none;
             cursor: pointer;
         }
@@ -616,23 +616,33 @@
             border-radius: 4px;
         }
 
-        .book-page-sheet h1, .book-page-sheet h2, .book-page-sheet h3 {
+        .book-page-sheet h1, .book-page-sheet h2, .book-page-sheet h3, .book-page-sheet h4 {
             color: var(--page-text);
             margin: 0.6em 0 0.5em;
             line-height: 1.3;
         }
 
-        .book-page-sheet p {
-            margin-bottom: 1em;
+        .book-page-sheet p, .book-page-sheet div {
+            margin-bottom: 0.85em;
             text-align: justify;
+        }
+
+        .book-page-sheet a {
+            color: #2563EB;
+            text-decoration: underline;
+            word-break: break-all;
+        }
+
+        [data-reader-theme="dark"] .book-page-sheet a {
+            color: #60A5FA;
         }
 
         .book-page-sheet img, .book-page-sheet svg {
             max-width: 100%;
-            max-height: 62vh;
+            max-height: 60vh;
             height: auto;
             display: block;
-            margin: 16px auto;
+            margin: 14px auto;
             border-radius: 6px;
         }
 
@@ -691,7 +701,7 @@
             font-size: 0.95rem;
             font-weight: 700;
             color: var(--primary);
-            min-width: 110px;
+            min-width: 115px;
             text-align: center;
         }
 
@@ -876,28 +886,34 @@
             background: #FFFFFF;
             color: #111827;
             font-family: 'DM Sans', sans-serif;
-            font-size: 14.5px;
-            line-height: 1.68;
+            font-size: 14px;
+            line-height: 1.65;
             z-index: -1;
             overflow: hidden;
             overflow-wrap: break-word;
             word-break: break-word;
         }
 
-        #pdfRenderStage h1, #pdfRenderStage h2, #pdfRenderStage h3 {
+        #pdfRenderStage h1, #pdfRenderStage h2, #pdfRenderStage h3, #pdfRenderStage h4 {
             color: #0F172A;
             margin: 0.5em 0 0.4em;
             line-height: 1.3;
         }
 
-        #pdfRenderStage p, #pdfRenderStage li {
+        #pdfRenderStage p, #pdfRenderStage div, #pdfRenderStage li {
             margin-bottom: 0.75em;
             text-align: justify;
         }
 
+        #pdfRenderStage a {
+            color: #1D4ED8;
+            text-decoration: underline;
+            word-break: break-all;
+        }
+
         #pdfRenderStage img {
             max-width: 100%;
-            max-height: 520px;
+            max-height: 480px;
             height: auto;
             display: block;
             margin: 12px auto;
@@ -1408,7 +1424,7 @@
         });
 
         /* ═══════════════════════════════════════════════════════════════════
-           CORE EPUB PARSER, DEEP LEAF-BLOCK UNWRAPPER & 300+ PAGE PAGINATOR
+           CALIBRE-VERIFIED EPUB PARSER, TOC.NCX MAPPER & 340+ PAGE PAGINATOR
         ═══════════════════════════════════════════════════════════════════ */
         async function processEpubFiles(fileList) {
             const epubFiles = fileList.filter(f => f && /\.epub$/i.test(f.name));
@@ -1461,13 +1477,27 @@
             return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         }
 
-        // NEW FIX: Recursively unwraps wrapper <div>, <section>, <article>, <ul>, <ol> containers
-        // so that individual paragraphs (<p>, <li>, <h1>-<h6>, <img>) are extracted for true 300+ page pagination.
+        // Smart Calibre-Aware Leaf Block Extractor:
+        // Only unwraps a container (like <div class="calibre1">) if it holds block-level child elements.
+        // If a <div class="calibre5"> or <p> holds inline links/spans (like "[cxiii] For further thoughts..."),
+        // it keeps the paragraph and its links together intact!
         function extractLeafBlocks(rootNode) {
             const leaves = [];
-            const UNWRAP_CONTAINERS = new Set([
-                'BODY', 'DIV', 'SECTION', 'ARTICLE', 'MAIN', 'ASIDE', 'HEADER', 'FOOTER', 'NAV', 'BLOCKQUOTE', 'UL', 'OL', 'DL', 'FIGURE'
+            const BLOCK_TAGS = new Set([
+                'ADDRESS', 'ARTICLE', 'ASIDE', 'BLOCKQUOTE', 'DIV', 'DL', 'DT', 'DD',
+                'FIELDSET', 'FIGCAPTION', 'FIGURE', 'FOOTER', 'FORM', 'H1', 'H2', 'H3',
+                'H4', 'H5', 'H6', 'HEADER', 'HR', 'LI', 'MAIN', 'NAV', 'OL', 'P', 'PRE',
+                'SECTION', 'TABLE', 'UL'
             ]);
+
+            function hasBlockElementChild(el) {
+                for (let i = 0; i < el.children.length; i++) {
+                    if (BLOCK_TAGS.has(el.children[i].tagName.toUpperCase())) {
+                        return true;
+                    }
+                }
+                return false;
+            }
 
             function walk(node) {
                 if (node.nodeType === Node.TEXT_NODE) {
@@ -1484,10 +1514,9 @@
 
                 if (node.nodeType !== Node.ELEMENT_NODE) return;
                 const tag = node.tagName.toUpperCase();
-                if (['SCRIPT', 'STYLE', 'LINK', 'META', 'NOSCRIPT'].includes(tag)) return;
+                if (['SCRIPT', 'STYLE', 'LINK', 'META', 'NOSCRIPT', 'HEAD'].includes(tag)) return;
 
-                const hasDirectImg = tag === 'IMG' || tag === 'SVG' || tag === 'IMAGE';
-                if (hasDirectImg) {
+                if (tag === 'IMG' || tag === 'SVG' || tag === 'IMAGE') {
                     leaves.push({
                         html: node.outerHTML,
                         text: '',
@@ -1496,12 +1525,26 @@
                     return;
                 }
 
-                // If this is a wrapper container that holds child element nodes, unwrap its children recursively
-                if (UNWRAP_CONTAINERS.has(tag) && node.children.length > 0) {
+                // If this element is a structural wrapper containing other block elements, unwrap its children
+                if (tag === 'BODY' || ((tag === 'DIV' || tag === 'SECTION' || tag === 'ARTICLE' || tag === 'MAIN' || tag === 'BLOCKQUOTE' || tag === 'UL' || tag === 'OL') && hasBlockElementChild(node))) {
                     for (const child of node.childNodes) {
                         walk(child);
                     }
                     return;
+                }
+
+                // Disable internal anchor links so clicking footnotes doesn't navigate away from the local app
+                if (node.querySelectorAll) {
+                    node.querySelectorAll('a').forEach(a => {
+                        const href = a.getAttribute('href') || '';
+                        if (!href.startsWith('http')) {
+                            a.removeAttribute('href');
+                            a.style.cursor = 'default';
+                        } else {
+                            a.setAttribute('target', '_blank');
+                            a.setAttribute('rel', 'noopener noreferrer');
+                        }
+                    });
                 }
 
                 const text = (node.textContent || '').trim();
@@ -1509,13 +1552,12 @@
 
                 if (!text && !hasNestedImg) return;
 
-                // If a single leaf block (e.g. a giant <p> or endnote block with <br> tags) exceeds 1,400 chars,
-                // split it cleanly by sentences so no single page can ever overflow or squish.
-                if (!hasNestedImg && text.length > 1400) {
+                // If a single paragraph contains multiple <br> line breaks and is huge, split by <br> or sentences
+                if (!hasNestedImg && text.length > 1250) {
                     const sentences = text.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g) || [text];
                     let chunk = '';
                     for (const s of sentences) {
-                        if ((chunk + s).length > 1100 && chunk.trim().length > 0) {
+                        if ((chunk + s).length > 950 && chunk.trim().length > 0) {
                             leaves.push({
                                 html: `<p>${escapeHtmlText(chunk.trim())}</p>`,
                                 text: chunk.trim(),
@@ -1597,6 +1639,7 @@
             const zip = await JSZip.loadAsync(file);
             const parser = new DOMParser();
 
+            // 1. Locate OPF via META-INF/container.xml
             const containerXmlFile = zip.file('META-INF/container.xml');
             let opfPath = '';
             if (containerXmlFile) {
@@ -1616,11 +1659,13 @@
             const opfText = await zip.file(opfPath).async('text');
             const opfDoc = parser.parseFromString(opfText, 'application/xml');
 
+            // 2. Extract Title & Author
             const titleNode = opfDoc.getElementsByTagNameNS('*', 'title')[0] || opfDoc.querySelector('title');
             const creatorNode = opfDoc.getElementsByTagNameNS('*', 'creator')[0] || opfDoc.querySelector('creator');
             const title = (titleNode && titleNode.textContent.trim()) || file.name.replace(/\.epub$/i, '');
             const author = (creatorNode && creatorNode.textContent.trim()) || 'Unknown Author';
 
+            // 3. Build Manifest & Load All Images (including root cover.jpeg & images/00001.jpeg..00042.jpeg)
             const manifest = {};
             const imageMap = {};
             const itemNodes = Array.from(opfDoc.getElementsByTagNameNS('*', 'item'));
@@ -1643,12 +1688,45 @@
                 }
             }
 
-            let coverUrl = null;
-            const coverMeta = opfDoc.querySelector('meta[name="cover"]');
-            if (coverMeta) {
-                const coverId = coverMeta.getAttribute('content');
-                if (manifest[coverId] && imageMap[manifest[coverId].fullPath]) {
-                    coverUrl = imageMap[manifest[coverId].fullPath];
+            // 4. Parse toc.ncx for Exact Chapter Titles mapped to part0000_split_XXX.html
+            const tocTitleMap = {}; // fullZipPath -> Chapter Title
+            const ncxItem = Object.values(manifest).find(m => /ncx$/i.test(m.mediaType) || /\.ncx$/i.test(m.fullPath));
+            const ncxZipFile = ncxItem ? zip.file(ncxItem.fullPath) : zip.file('toc.ncx');
+            if (ncxZipFile) {
+                try {
+                    const ncxText = await ncxZipFile.async('text');
+                    const ncxDoc = parser.parseFromString(ncxText, 'application/xml');
+                    const ncxBaseDir = ncxItem && ncxItem.fullPath.includes('/')
+                        ? ncxItem.fullPath.substring(0, ncxItem.fullPath.lastIndexOf('/'))
+                        : opfBaseDir;
+
+                    const navPoints = Array.from(ncxDoc.getElementsByTagNameNS('*', 'navPoint'));
+                    for (const np of navPoints) {
+                        const labelNode = np.getElementsByTagNameNS('*', 'text')[0];
+                        const contentNode = np.getElementsByTagNameNS('*', 'content')[0];
+                        if (labelNode && contentNode) {
+                            const labelText = labelNode.textContent.trim();
+                            const srcAttr = contentNode.getAttribute('src') || '';
+                            const resolvedTarget = resolveZipPath(ncxBaseDir, srcAttr);
+                            if (labelText && resolvedTarget && !tocTitleMap[resolvedTarget]) {
+                                tocTitleMap[resolvedTarget] = labelText;
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.warn('NCX parse warning:', e);
+                }
+            }
+
+            // 5. Extract Cover Image (Checks cover.jpeg, meta[name="cover"], or first image)
+            let coverUrl = imageMap['cover.jpeg'] || imageMap['cover.jpg'] || null;
+            if (!coverUrl) {
+                const coverMeta = opfDoc.querySelector('meta[name="cover"]');
+                if (coverMeta) {
+                    const coverId = coverMeta.getAttribute('content');
+                    if (manifest[coverId] && imageMap[manifest[coverId].fullPath]) {
+                        coverUrl = imageMap[manifest[coverId].fullPath];
+                    }
                 }
             }
             if (!coverUrl) {
@@ -1667,6 +1745,7 @@
                 coverUrl = generateProceduralCover(title, author);
             }
 
+            // 6. Paginate Spine Items into ~980-Char Virtual Pages (~340 Pages for Hooked)
             const spineNodes = Array.from(opfDoc.getElementsByTagNameNS('*', 'itemref'));
             const pages = [];
             const chapters = [];
@@ -1677,23 +1756,26 @@
                 html: `
                     <div style="text-align:center; padding: 10px 0;">
                         <img src="${coverUrl}" alt="Cover" style="max-height: 360px; box-shadow: 0 10px 25px rgba(0,0,0,0.25); border-radius: 8px; margin-bottom: 20px;">
-                        <h1 style="font-size: 1.6rem; margin-bottom: 6px;">${title}</h1>
-                        <p style="text-align:center; color: #64748B; font-weight: 600;">${author}</p>
+                        <h1 style="font-size: 1.6rem; margin-bottom: 6px;">${escapeHtmlText(title)}</h1>
+                        <p style="text-align:center; color: #64748B; font-weight: 600;">${escapeHtmlText(author)}</p>
                     </div>
                 `,
                 text: `${title}\nBy ${author}\n`
             });
             chapters.push({ title: '1. Cover Page', pageIndex: 0 });
 
-            // Standard eBook synthetic page budget (~1,200 chars or ~8 paragraphs per page, matching Readest / Adobe Digital Editions)
-            const CHARS_PER_SYNTHETIC_PAGE = 1200;
-            const MAX_BLOCKS_PER_PAGE = 9;
+            // Calibrated to Readest / Adobe Digital Editions synthetic page density (~980 chars or 8 blocks per page)
+            const CHARS_PER_SYNTHETIC_PAGE = 980;
+            const MAX_BLOCKS_PER_PAGE = 8;
 
             let chapterCounter = 1;
             for (const ref of spineNodes) {
                 const idref = ref.getAttribute('idref');
                 const item = manifest[idref];
                 if (!item) continue;
+
+                // Skip Calibre's redundant titlepage.xhtml wrapper since Page 1 already renders cover.jpeg
+                if (/titlepage\.xhtml$/i.test(item.fullPath)) continue;
 
                 const chapterFile = zip.file(item.fullPath) || zip.file(decodeURIComponent(item.fullPath));
                 if (!chapterFile) continue;
@@ -1702,33 +1784,35 @@
                 const chapterDoc = parser.parseFromString(rawHtml, 'text/html');
                 const chapterDir = item.fullPath.includes('/') ? item.fullPath.substring(0, item.fullPath.lastIndexOf('/')) : '';
 
+                // Resolve all <img> and SVG <image> tags to base64 Data URLs
                 chapterDoc.querySelectorAll('img, image').forEach(img => {
                     const src = img.getAttribute('src') || img.getAttribute('xlink:href') || img.getAttribute('href');
                     if (src && !src.startsWith('data:') && !src.startsWith('http')) {
                         const resolvedImgPath = resolveZipPath(chapterDir, src);
                         if (imageMap[resolvedImgPath]) {
-                            if (img.tagName.toLowerCase() === 'image') {
-                                const replacementImg = chapterDoc.createElement('img');
-                                replacementImg.src = imageMap[resolvedImgPath];
-                                img.replaceWith(replacementImg);
+                            const replacementImg = chapterDoc.createElement('img');
+                            replacementImg.src = imageMap[resolvedImgPath];
+                            replacementImg.alt = img.getAttribute('alt') || '';
+                            if (img.closest('svg')) {
+                                img.closest('svg').replaceWith(replacementImg);
                             } else {
-                                img.src = imageMap[resolvedImgPath];
+                                img.replaceWith(replacementImg);
                             }
                         }
                     }
                 });
 
-                chapterDoc.querySelectorAll('script, style, link').forEach(el => el.remove());
+                chapterDoc.querySelectorAll('script, style, link, meta').forEach(el => el.remove());
 
-                const headingEl = chapterDoc.querySelector('h1, h2, h3, title');
-                const chapterTitle = (headingEl && headingEl.textContent.trim())
-                    ? headingEl.textContent.trim().slice(0, 48)
-                    : `Section ${chapterCounter}`;
+                // Determine best Chapter Title (Prefer toc.ncx -> h1/h2/h3 -> Section #)
+                const headingEl = chapterDoc.querySelector('h1, h2, h3');
+                const ncxLabel = tocTitleMap[item.fullPath];
+                const headingText = headingEl ? headingEl.textContent.replace(/\s+/g, ' ').trim() : '';
+                const chapterTitle = ncxLabel || (headingText && headingText.toLowerCase() !== title.toLowerCase() ? headingText.slice(0, 52) : `Section ${chapterCounter}`);
 
                 const bodyEl = chapterDoc.body;
                 if (!bodyEl) continue;
 
-                // Extract leaf paragraphs/blocks even if wrapped inside deep <div class="chapter"> tags
                 const leafBlocks = extractLeafBlocks(bodyEl);
                 if (leafBlocks.length === 0) continue;
 
@@ -1743,7 +1827,7 @@
                     const nextCharLen = currentChunkText.length + leaf.text.length;
                     const shouldBreakForText = nextCharLen > CHARS_PER_SYNTHETIC_PAGE && currentChunkHtml !== '';
                     const shouldBreakForCount = currentBlockCount >= MAX_BLOCKS_PER_PAGE && currentChunkHtml !== '';
-                    const shouldBreakForImg = leaf.hasImage && currentChunkText.length > 350;
+                    const shouldBreakForImg = leaf.hasImage && currentChunkText.length > 250;
 
                     if (shouldBreakForText || shouldBreakForCount || shouldBreakForImg) {
                         pages.push({
@@ -1808,9 +1892,9 @@
 
                 card.innerHTML = `
                     <div class="book-cover-box">
-                        <img src="${book.coverUrl}" alt="${book.title}">
+                        <img src="${book.coverUrl}" alt="${escapeHtmlText(book.title)}">
                     </div>
-                    <div class="book-card-title" title="${book.title}">${book.title}</div>
+                    <div class="book-card-title" title="${escapeHtmlText(book.title)}">${escapeHtmlText(book.title)}</div>
                     <div class="book-card-pages">${book.pages.length} pages</div>
                 `;
                 gridEl.appendChild(card);
@@ -2004,7 +2088,7 @@
             await executeExport(format, pageSetup);
         }
 
-        // Helper: Adds a rendered <canvas> to jsPDF at true 1:1 aspect ratio, slicing across pages if needed so it NEVER squishes
+        // Helper: Appends a rendered <canvas> to jsPDF at true 1:1 aspect ratio, slicing across pages if needed so it NEVER squishes
         function appendCanvasAtTrueScale(pdf, canvas, setup, isFirstPdfPage) {
             const usableWidthMm = setup.widthMm - setup.marginMm * 2;
             const usableHeightMm = setup.heightMm - setup.marginMm * 2;
@@ -2097,7 +2181,7 @@
                             </div>
                         `;
 
-                        await new Promise(r => setTimeout(r, 12));
+                        await new Promise(r => setTimeout(r, 10));
 
                         const canvas = await html2canvas(stage, {
                             scale: 1.5,
@@ -2121,7 +2205,7 @@
                 }
             }
 
-            // 2. FAST NATIVE TEXT + COVER PDF DOWNLOAD (Instant 300+ Pages via jsPDF splitTextToSize)
+            // 2. FAST NATIVE TEXT + COVER PDF DOWNLOAD (Instant 340+ Pages via jsPDF splitTextToSize)
             else if (format === 'pdf-fast') {
                 showLoading(`Generating Fast ${setup.name} PDF...`, 'Writing native PDF text streams...');
                 await new Promise(r => setTimeout(r, 60));
